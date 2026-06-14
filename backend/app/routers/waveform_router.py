@@ -1,15 +1,28 @@
-from fastapi import APIRouter, UploadFile, File
-from app.services.seismic_service import process_waveform
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from app.services.seismic_service import process_waveform, save_history, list_history, get_history
 
 router = APIRouter()
 
 
 @router.post("/waveform/upload")
 async def upload_waveform(file: UploadFile = File(...)):
-    """Upload SAC/miniSEED file and run analysis."""
     content = await file.read()
     result = process_waveform(content, file.filename or "unknown")
+    save_history(file.filename or "unknown", result["waveform"], result["picks"])
     return result
+
+
+@router.get("/history")
+def get_upload_history():
+    return list_history()
+
+
+@router.get("/history/{record_id}")
+def get_history_detail(record_id: str):
+    record = get_history(record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="History record not found")
+    return record
 
 
 @router.get("/waveform/stations")

@@ -1,10 +1,10 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any
 
 
 class PhasePick(BaseModel):
     id: str
-    type: str  # 'P' or 'S'
+    type: str
     time: float
     confidence: float
     method: str
@@ -24,3 +24,18 @@ class SeismicEvent(BaseModel):
     depth: float
     origin_time: str
     location: str
+
+
+class UploadHistorySummary(BaseModel):
+    id: str
+    filename: str
+    upload_time: str
+    pick_count: int
+
+
+class UploadHistoryDetail(BaseModel):
+    id: str
+    filename: str
+    upload_time: str
+    waveform: Any
+    picks: List[PhasePick]

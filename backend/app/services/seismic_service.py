@@ -1,6 +1,40 @@
 """Seismic waveform processing service."""
+import uuid
+from datetime import datetime, timezone
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+
+_history_store: Dict[str, Dict[str, Any]] = {}
+
+
+def save_history(filename: str, waveform: Dict[str, Any], picks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    record_id = uuid.uuid4().hex[:12]
+    record = {
+        "id": record_id,
+        "filename": filename,
+        "upload_time": datetime.now(timezone.utc).isoformat(),
+        "waveform": waveform,
+        "picks": picks,
+    }
+    _history_store[record_id] = record
+    return record
+
+
+def list_history() -> List[Dict[str, Any]]:
+    records = sorted(_history_store.values(), key=lambda r: r["upload_time"], reverse=True)
+    return [
+        {
+            "id": r["id"],
+            "filename": r["filename"],
+            "upload_time": r["upload_time"],
+            "pick_count": len(r["picks"]),
+        }
+        for r in records
+    ]
+
+
+def get_history(record_id: str) -> Optional[Dict[str, Any]]:
+    return _history_store.get(record_id)
 
 
 def generate_mock_waveform(duration: int = 60, sr: int = 100) -> Dict[str, Any]:

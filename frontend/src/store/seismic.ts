@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import type { WaveformData, PhasePick, Station, SeismicEvent } from '../types'
+import type { WaveformData, PhasePick, Station, SeismicEvent, UploadHistorySummary, UploadHistoryDetail } from '../types'
 
 export const useSeismicStore = defineStore('seismic', () => {
   const waveform = ref<WaveformData | null>(null)
@@ -10,6 +10,8 @@ export const useSeismicStore = defineStore('seismic', () => {
   const ltaWindow = ref(10.0)
   const threshold = ref(3.5)
   const isLoading = ref(false)
+  const uploadHistory = ref<UploadHistorySummary[]>([])
+  const currentFilename = ref<string>('')
   const events = ref<SeismicEvent[]>([
     { id: '1', magnitude: 4.2, depth: 12.5, originTime: '2025-01-15T08:23:41Z', location: '四川雅安' },
     { id: '2', magnitude: 3.8, depth: 8.3, originTime: '2025-01-14T14:12:05Z', location: '云南大理' },
@@ -115,6 +117,7 @@ export const useSeismicStore = defineStore('seismic', () => {
 
   async function uploadAndAnalyze(file: File) {
     isLoading.value = true
+    currentFilename.value = file.name
     try {
       const formData = new FormData()
       formData.append('file', file)
@@ -124,6 +127,7 @@ export const useSeismicStore = defineStore('seismic', () => {
         waveform.value = data.waveform
         picks.value = data.picks || []
       }
+      fetchHistory()
     } catch {
       loadMockData()
     } finally {
@@ -131,9 +135,34 @@ export const useSeismicStore = defineStore('seismic', () => {
     }
   }
 
+  async function fetchHistory() {
+    try {
+      const resp = await fetch('/api/history')
+      if (resp.ok) {
+        uploadHistory.value = await resp.json()
+      }
+    } catch {}
+  }
+
+  async function loadFromHistory(recordId: string) {
+    isLoading.value = true
+    try {
+      const resp = await fetch(`/api/history/${recordId}`)
+      if (resp.ok) {
+        const data: UploadHistoryDetail = await resp.json()
+        waveform.value = data.waveform
+        picks.value = data.picks
+        currentFilename.value = data.filename
+      }
+    } catch {} finally {
+      isLoading.value = false
+    }
+  }
+
   return {
     waveform, picks, selectedStation, staWindow, ltaWindow, threshold,
-    isLoading, events, stations,
-    loadMockData, staLtaPicking, uploadAndAnalyze, generateMockWaveform
+    isLoading, events, stations, uploadHistory, currentFilename,
+    loadMockData, staLtaPicking, uploadAndAnalyze, generateMockWaveform,
+    fetchHistory, loadFromHistory
   }
 })

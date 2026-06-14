@@ -14,6 +14,21 @@
         加载模拟数据
       </button>
 
+      <!-- Upload History -->
+      <div class="bg-gray-800 rounded-xl p-3">
+        <h3 class="text-cyan-300 font-bold text-sm mb-2">上传历史</h3>
+        <div v-if="store.uploadHistory.length === 0" class="text-gray-600 text-xs">暂无历史记录</div>
+        <div v-for="h in store.uploadHistory" :key="h.id"
+          @click="store.loadFromHistory(h.id)"
+          class="bg-gray-700 rounded p-2 mb-1 text-sm cursor-pointer hover:bg-gray-600 transition-colors">
+          <div class="flex items-center justify-between">
+            <span class="text-gray-200 truncate flex-1" :title="h.filename">{{ h.filename }}</span>
+            <span class="text-cyan-400 text-xs ml-2 whitespace-nowrap">{{ h.pick_count }} 震相</span>
+          </div>
+          <div class="text-gray-500 text-xs mt-0.5">{{ formatTime(h.upload_time) }}</div>
+        </div>
+      </div>
+
       <!-- STA/LTA Parameters -->
       <div class="bg-gray-800 rounded-xl p-3 space-y-2">
         <h3 class="text-cyan-300 font-bold text-sm">STA/LTA 参数</h3>
@@ -68,19 +83,29 @@
 
     <!-- Main: Waveform Charts -->
     <div class="flex-1 flex flex-col gap-2 p-4 overflow-y-auto">
-      <WaveformChart v-if="store.waveform" />
-      <div v-else class="flex-1 flex items-center justify-center text-gray-600">
-        请上传数据或加载模拟波形
+      <div v-if="store.isLoading" class="flex-1 flex items-center justify-center text-cyan-400">
+        加载中...
       </div>
+      <template v-else>
+        <WaveformChart v-if="store.waveform" />
+        <div v-else class="flex-1 flex items-center justify-center text-gray-600">
+          请上传数据或加载模拟波形
+        </div>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { useSeismicStore } from './store/seismic'
 import WaveformChart from './components/WaveformChart.vue'
 
 const store = useSeismicStore()
+
+onMounted(() => {
+  store.fetchHistory()
+})
 
 function onUpload(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
@@ -89,5 +114,15 @@ function onUpload(e: Event) {
 
 function runPick() {
   store.picks = store.staLtaPicking()
+}
+
+function formatTime(iso: string): string {
+  try {
+    const d = new Date(iso)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  } catch {
+    return iso
+  }
 }
 </script>
