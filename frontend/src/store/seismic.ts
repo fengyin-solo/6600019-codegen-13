@@ -2,6 +2,9 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { WaveformData, PhasePick, Station, SeismicEvent, UploadHistorySummary, UploadHistoryDetail } from '../types'
 
+const LOCAL_HISTORY_KEY = 'seismic_upload_history'
+const MAX_LOCAL_HISTORY = 20
+
 export const useSeismicStore = defineStore('seismic', () => {
   const waveform = ref<WaveformData | null>(null)
   const picks = ref<PhasePick[]>([])
@@ -12,6 +15,9 @@ export const useSeismicStore = defineStore('seismic', () => {
   const isLoading = ref(false)
   const uploadHistory = ref<UploadHistorySummary[]>([])
   const currentFilename = ref<string>('')
+
+  const _localHistoryDetail = ref<Record<string, UploadHistoryDetail>>({})
+
   const events = ref<SeismicEvent[]>([
     { id: '1', magnitude: 4.2, depth: 12.5, originTime: '2025-01-15T08:23:41Z', location: '四川雅安' },
     { id: '2', magnitude: 3.8, depth: 8.3, originTime: '2025-01-14T14:12:05Z', location: '云南大理' },
@@ -24,6 +30,64 @@ export const useSeismicStore = defineStore('seismic', () => {
     { id: 'STA03', name: 'KMI', latitude: 25.0, longitude: 102.7, elevation: 1890 },
     { id: 'STA04', name: 'HIA', latitude: 49.3, longitude: 119.7, elevation: 610 },
   ])
+
+  _loadLocalStorage()
+
+  function _saveLocalStorage() {
+    try {
+      const payload = {
+        summary: uploadHistory.value,
+        detail: _localHistoryDetail.value,
+      }
+      localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(payload))
+    } catch {}
+  }
+
+  function _loadLocalStorage() {
+    try {
+      const raw = localStorage.getItem(LOCAL_HISTORY_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed.summary && Array.isArray(parsed.summary)) {
+          uploadHistory.value = parsed.summary
+        }
+        if (parsed.detail && typeof parsed.detail === 'object') {
+          _localHistoryDetail.value = parsed.detail
+        }
+      }
+    } catch {}
+  }
+
+  function _addHistoryEntry(filename: string, wf: WaveformData, ps: PhasePick[]) {
+    const id = `hist_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const uploadTime = new Date().toISOString()
+
+    const summary: UploadHistorySummary = {
+      id,
+      filename,
+      upload_time: uploadTime,
+      pick_count: ps.length,
+    }
+
+    const detail: UploadHistoryDetail = {
+      id,
+      filename,
+      upload_time: uploadTime,
+      waveform: wf,
+      picks: ps,
+    }
+
+    uploadHistory.value = [summary, ...uploadHistory.value].slice(0, MAX_LOCAL_HISTORY)
+    _localHistoryDetail.value[id] = detail
+
+    const allIds = uploadHistory.value.map(s => s.id)
+    Object.keys(_localHistoryDetail.value).forEach(k => {
+      if (!allIds.includes(k)) delete _localHistoryDetail.value[k]
+    })
+
+    _saveLocalStorage()
+    return id
+  }
 
   function generateMockWaveform(): WaveformData {
     const sr = 100  // sampling rate Hz
@@ -77,6 +141,8 @@ export const useSeismicStore = defineStore('seismic', () => {
       { id: 'p1', type: 'P', time: 10.2, confidence: 0.92, method: 'STA/LTA' },
       { id: 'p2', type: 'S', time: 22.5, confidence: 0.88, method: 'STA/LTA' },
     ]
+    currentFilename.value = '模拟数据'
+    _addHistoryEntry('模拟数据', waveform.value, picks.value)
   }
 
   function staLtaPicking(): PhasePick[] {
@@ -126,8 +192,12 @@ export const useSeismicStore = defineStore('seismic', () => {
         const data = await resp.json()
         waveform.value = data.waveform
         picks.value = data.picks || []
+        if (waveform.value) {
+          _addHistoryEntry(file.name, waveform.value, picks.value)
+        }
+      } else {
+        throw new Error('upload failed')
       }
-      fetchHistory()
     } catch {
       loadMockData()
     } finally {
@@ -136,10 +206,21 @@ export const useSeismicStore = defineStore('seismic', () => {
   }
 
   async function fetchHistory() {
+    _loadLocalStorage()
     try {
       const resp = await fetch('/api/history')
       if (resp.ok) {
-        uploadHistory.value = await resp.json()
+        const serverList: UploadHistorySummary[] = await resp.json()
+        const existingIds = new Set(uploadHistory.value.map(s => s.id))
+        for (const s of serverList) {
+          if (!existingIds.has(s.id)) {
+            uploadHistory.value.push(s)
+          }
+        }
+        uploadHistory.value.sort((a, b) =>
+          new Date(b.upload_time).getTime() - new Date(a.upload_time).getTime()
+        )
+        uploadHistory.value = uploadHistory.value.slice(0, MAX_LOCAL_HISTORY)
       }
     } catch {}
   }
@@ -147,6 +228,14 @@ export const useSeismicStore = defineStore('seismic', () => {
   async function loadFromHistory(recordId: string) {
     isLoading.value = true
     try {
+      const local = _localHistoryDetail.value[recordId]
+      if (local) {
+        waveform.value = local.waveform
+        picks.value = local.picks
+        currentFilename.value = local.filename
+        isLoading.value = false
+        return
+      }
       const resp = await fetch(`/api/history/${recordId}`)
       if (resp.ok) {
         const data: UploadHistoryDetail = await resp.json()
